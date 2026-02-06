@@ -1,6 +1,5 @@
 import os
 import re
-import random
 import aiohttp
 import aiofiles
 import numpy as np
@@ -12,25 +11,20 @@ from YouTubeMusic.Search import Search
 # ───────── LOAD ENV ─────────
 load_dotenv()
 
-# ───────── BOT CONFIG ─────────
 API_ID = 35362137
 API_HASH = "c3c3e167ea09bc85369ca2fa3c1be790"
 BOT_TOKEN = "8360461005:AAH7uHgra-bYu1I3WOSgpn1VMrFt1Wi1fcw"
 
 if not API_ID or not API_HASH or not BOT_TOKEN:
-    raise RuntimeError("❌ API_ID / API_HASH / BOT_TOKEN missing in .env")
+    raise RuntimeError("❌ API_ID / API_HASH / BOT_TOKEN missing")
 
 # ───────── PATHS ─────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CACHE_DIR = os.getenv("CACHE_DIR", os.path.join(BASE_DIR, "cache"))
-FONT_PATH = os.getenv("FONT_PATH", os.path.join(BASE_DIR, "fonts/Montserrat-Bold.ttf"))
-FONT2_PATH = os.getenv("FONT2_PATH", os.path.join(BASE_DIR, "fonts/Roboto-Regular.ttf"))
+CACHE_DIR = os.path.join(BASE_DIR, "cache")
+FONT_PATH = os.path.join(BASE_DIR, "fonts/Montserrat-Bold.ttf")
+FONT2_PATH = os.path.join(BASE_DIR, "fonts/Roboto-Regular.ttf")
 
-YOUTUBE_IMG_URL = os.getenv(
-    "YOUTUBE_IMG_URL",
-    "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"
-)
-
+YOUTUBE_IMG_URL = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # ───────── BOT ─────────
@@ -43,21 +37,18 @@ bot = Client(
 
 # ───────── HELPERS ─────────
 def extract_video_id(url: str):
-    try:
-        if "watch?v=" in url:
-            return url.split("watch?v=")[1].split("&")[0]
-        if "youtu.be/" in url:
-            return url.split("youtu.be/")[1].split("?")[0]
-    except:
-        pass
+    if not url:
+        return None
+    if "watch?v=" in url:
+        return url.split("watch?v=")[1].split("&")[0]
+    if "youtu.be/" in url:
+        return url.split("youtu.be/")[1].split("?")[0]
     return None
 
 
 def rounded_mask(size, radius):
     mask = Image.new("L", size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle(
-        (0, 0, size[0], size[1]), radius=radius, fill=255
-    )
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, *size), radius, fill=255)
     return mask
 
 
@@ -68,16 +59,17 @@ def noise_texture(w, h, opacity=18):
     return img
 
 
-# ───────── THUMBNAIL GENERATOR ─────────
+# ───────── THUMB GENERATOR ─────────
 async def gen_thumb(query: str):
     try:
-        res = await Search(query, limit=1)
+        # ❌ await removed (Search is sync)
+        res = Search(query, limit=1)
+
         if not res or not res.get("main_results"):
             return YOUTUBE_IMG_URL
 
         r = res["main_results"][0]
-
-        title = r.get("title", "Unknown Title")
+        title = r.get("title", "Unknown")
         duration = r.get("duration", "00:00")
         views = r.get("views", "0")
         url = r.get("url")
@@ -86,12 +78,11 @@ async def gen_thumb(query: str):
         if not vid:
             return YOUTUBE_IMG_URL
 
-        thumb_url = r.get("thumbnail") or f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
         final_path = os.path.join(CACHE_DIR, f"{vid}.png")
-
         if os.path.isfile(final_path):
             return final_path
 
+        thumb_url = r.get("thumbnail") or f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
         raw_path = os.path.join(CACHE_DIR, f"raw_{vid}.jpg")
 
         async with aiohttp.ClientSession() as session:
@@ -103,51 +94,71 @@ async def gen_thumb(query: str):
 
         img = Image.open(raw_path).convert("RGBA")
 
-        # ─── CANVAS ───
+        # ───────── CANVAS ─────────
         W, H = 1920, 1080
         canvas = Image.new("RGBA", (W, H))
 
         bg = img.resize((W, H), Image.LANCZOS)
-        bg = ImageEnhance.Color(bg).enhance(1.3)
-        bg = bg.filter(ImageFilter.GaussianBlur(70))
-        bg = ImageEnhance.Brightness(bg).enhance(0.55)
+        bg = ImageFilter.GaussianBlur(90).filter(bg)
+        bg = ImageEnhance.Brightness(bg).enhance(0.45)
+        bg = ImageEnhance.Color(bg).enhance(1.4)
         canvas.paste(bg, (0, 0))
 
-        # ⚠️ SAME LINE – bas reuse kiya (no delete)
-        noise = noise_texture(W, H)
-        canvas.paste(noise, (0, 0), noise)
+        canvas.paste(noise_texture(W, H), (0, 0), noise_texture(W, H))
 
-        # ─── CARD ───
-        card_w, card_h = 1100, 380
+        # ───────── PLAYER CARD ─────────
+        card_w, card_h = 1250, 260
         cx, cy = (W - card_w) // 2, (H - card_h) // 2
 
         card = Image.new("RGBA", (card_w, card_h))
         cd = ImageDraw.Draw(card)
+
         cd.rounded_rectangle(
             (0, 0, card_w, card_h),
-            radius=40,
-            fill=(15, 15, 20, 160),
-            outline=(255, 255, 255, 40),
-            width=2
+            radius=36,
+            fill=(10, 10, 15, 170)
         )
 
+        # Fonts
         try:
-            f_title = ImageFont.truetype(FONT_PATH, 46)
-            f_meta = ImageFont.truetype(FONT2_PATH, 28)
-            f_small = ImageFont.truetype(FONT2_PATH, 24)
+            f_title = ImageFont.truetype(FONT_PATH, 34)
+            f_meta = ImageFont.truetype(FONT2_PATH, 24)
+            f_small = ImageFont.truetype(FONT2_PATH, 22)
         except:
             f_title = f_meta = f_small = ImageFont.load_default()
 
-        album = img.resize((300, 300), Image.LANCZOS)
-        card.paste(album, (40, 40), rounded_mask((300, 300), 28))
+        # Album
+        album = img.resize((200, 200), Image.LANCZOS)
+        card.paste(album, (30, 30), rounded_mask((200, 200), 24))
 
-        clean = re.sub(r"[^\w\s\-\.\,\!\?]", "", title)
-        if len(clean) > 30:
-            clean = clean[:27] + "..."
+        # Clean title
+        clean = re.sub(r"[^\w\s\-.,!?]", "", title)
+        if len(clean) > 38:
+            clean = clean[:35] + "..."
 
-        cd.text((380, 55), clean, font=f_title, fill="white")
-        cd.text((380, 115), f"👁 {views}", font=f_meta, fill=(220, 220, 220))
-        cd.text((380, 165), f"⏱ {duration}", font=f_small, fill=(190, 190, 190))
+        cd.text((260, 35), clean, font=f_title, fill="white")
+        cd.text((260, 85), "YouTube Music", font=f_small, fill=(200, 200, 200))
+        cd.text((260, 120), f"{views} Views • {duration}", font=f_small, fill=(170, 170, 170))
+
+        # Progress bar
+        bar_x, bar_y = 260, 175
+        bar_w, bar_h = 850, 6
+
+        cd.rounded_rectangle(
+            (bar_x, bar_y, bar_x + bar_w, bar_y + bar_h),
+            radius=10,
+            fill=(120, 120, 120, 120)
+        )
+
+        progress = int(bar_w * 0.2)  # static demo
+        cd.rounded_rectangle(
+            (bar_x, bar_y, bar_x + progress, bar_y + bar_h),
+            radius=10,
+            fill=(255, 215, 120)
+        )
+
+        cd.text((bar_x, bar_y + 12), "00:00", font=f_small, fill=(180, 180, 180))
+        cd.text((bar_x + bar_w - 50, bar_y + 12), duration, font=f_small, fill=(180, 180, 180))
 
         canvas.paste(card, (cx, cy), card)
         canvas.convert("RGB").save(final_path, "PNG")
@@ -160,16 +171,16 @@ async def gen_thumb(query: str):
         return YOUTUBE_IMG_URL
 
 
-# ───────── BOT COMMAND ─────────
+# ───────── COMMAND ─────────
 @bot.on_message(filters.command("thumb"))
 async def thumb_cmd(_, m):
     if len(m.command) < 2:
-        return await m.reply("❌ Usage:\n`/thumb song name`")
+        return await m.reply("❌ /thumb song name")
 
     msg = await m.reply("🎨 Generating thumbnail...")
     thumb = await gen_thumb(" ".join(m.command[1:]))
 
-    if thumb.startswith("http"):
+    if isinstance(thumb, str) and thumb.startswith("http"):
         await msg.edit("❌ Failed to generate thumbnail")
     else:
         await m.reply_photo(thumb)
@@ -178,4 +189,3 @@ async def thumb_cmd(_, m):
 
 # ───────── START ─────────
 bot.run()
-        
