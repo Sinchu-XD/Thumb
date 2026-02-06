@@ -1,7 +1,8 @@
 import os
-import subprocess
+import requests
+from io import BytesIO
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from pyrogram import Client, filters
-from pyrogram.types import Message
 from YouTubeMusic.Search import Search
 
 # ───────── CONFIG ─────────
@@ -10,135 +11,93 @@ API_HASH = "c3c3e167ea09bc85369ca2fa3c1be790"
 BOT_TOKEN = "8360461005:AAH7uHgra-bYu1I3WOSgpn1VMrFt1Wi1fcw"
 
 FONT_SONG = "fonts/Montserrat-Bold.ttf"
-FONT_DURATION = "fonts/Roboto-Medium.ttf"
-FONT_VIEWS = "fonts/JetBrainsMono.ttf"
+FONT_META = "fonts/Roboto-Medium.ttf"
+FONT_STATS = "fonts/JetBrainsMono-Regular.ttf"
 
 os.makedirs("temp", exist_ok=True)
 
 bot = Client(
-    "music_thumb_bot",
+    "pil_thumb_bot",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
 
-# ───────── YT HELPERS ─────────
+# ───────── HELPERS ─────────
 def extract_video_id(url: str):
-    try:
-        if "watch?v=" in url:
-            return url.split("watch?v=")[1].split("&")[0]
-        elif "youtu.be/" in url:
-            return url.split("youtu.be/")[1].split("?")[0]
-    except Exception:
-        pass
+    if "watch?v=" in url:
+        return url.split("watch?v=")[1].split("&")[0]
+    if "youtu.be/" in url:
+        return url.split("youtu.be/")[1].split("?")[0]
     return None
 
 
 def yt_thumbnail(url: str):
     vid = extract_video_id(url)
-    if not vid:
-        return None
     return f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
 
 
-# ───────── QUERY → DATA ─────────
 async def get_thumb_from_query(query: str):
     res = await Search(query, limit=1)
     if not res or not res.get("main_results"):
         return None
 
     i = res["main_results"][0]
-    vid = extract_video_id(i["url"])
-    if not vid:
-        return None
-
     return {
-        "title": i.get("title", "Unknown Title"),
+        "title": i.get("title", "Unknown"),
         "duration": i.get("duration", "Unknown"),
         "views": i.get("views", "Unknown"),
         "thumb": i.get("thumbnail") or yt_thumbnail(i["url"]),
     }
 
-
-# ───────── FFMPEG THUMB GENERATOR ─────────
+# ───────── PIL THUMBNAIL ─────────
 def generate_thumbnail(data: dict) -> str:
-    thumb_url = data["thumb"]
-    title = data["title"].replace("'", "")
-    duration = data["duration"]
-    views = data["views"]
+    # download image
+    r = requests.get(data["thumb"])
+    img = Image.open(BytesIO(r.content)).convert("RGB")
 
-    bg = "temp/bg.jpg"
-    circle = "temp/circle.png"
-    final = "temp/final.jpg"
+    # canvas
+    canvas = Image.new("RGB", (900, 900))
+    bg = img.resize((900, 900)).filter(ImageFilter.GaussianBlur(18))
+    canvas.paste(bg, (0, 0))
 
-    # 1️⃣ Background
-    subprocess.run([
-        "ffmpeg", "-y", "-i", thumb_url,
-        "-vf", "scale=900:900,boxblur=35:1,eq=brightness=-0.08:saturation=1.1",
-        bg
-    ], check=True)
+    # circular album
+    album = img.resize((260, 260))
+    mask = Image.new("L", album.size, 0)
+    draw = ImageDraw.Draw(mask)
+    draw.ellipse((0, 0, 260, 260), fill=255)
 
-    # 2️⃣ Circular thumbnail
-    subprocess.run([
-        "ffmpeg", "-y", "-i", thumb_url,
-        "-vf",
-        "scale=300:300,format=rgba,"
-        "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':"
-        "a='if(lte((X-150)^2+(Y-150)^2,150^2),255,0)'",
-        circle
-    ], check=True)
+    canvas.paste(album, (80, 320), mask)
 
-    # 3️⃣ Final composition
-    subprocess.run([
-        "ffmpeg", "-y",
-        "-i", bg,
-        "-i", circle,
-        "-filter_complex",
-        f"""
-        overlay=(W-w)/2:(H-h)/2,
-        drawtext=fontfile={FONT_SONG}:
-        text='{title}':
-        fontsize=52:
-        fontcolor=white:
-        x=360:y=560,
-        drawtext=fontfile={FONT_DURATION}:
-        text='{duration}':
-        fontsize=30:
-        fontcolor=#cccccc:
-        x=360:y=625,
-        drawtext=fontfile={FONT_VIEWS}:
-        text='{views}':
-        fontsize=28:
-        fontcolor=#aaaaaa:
-        x=360:y=665
-        """,
-        final
-    ], check=True)
+    # text
+    draw = ImageDraw.Draw(canvas)
 
-    return final
+    font_title = ImageFont.truetype(FONT_SONG, 46)
+    font_meta = ImageFont.truetype(FONT_META, 28)
+    font_views = ImageFont.truetype(FONT_STATS, 26)
 
+    draw.text((380, 330), data["title"], font=font_title, fill="white")
+    draw.text((380, 395), data["duration"], font=font_meta, fill="#cccccc")
+    draw.text((380, 435), data["views"], font=font_views, fill="#aaaaaa")
 
-# ───────── BOT COMMAND ─────────
-@bot.on_message(filters.command("thumb") & filters.private)
-async def thumb_cmd(_, m: Message):
+    out = "temp/final.jpg"
+    canvas.save(out, "JPEG", quality=92)
+    return out
+
+# ───────── BOT CMD ─────────
+@bot.on_message(filters.command("thumb"))
+async def thumb(_, m):
     if len(m.command) < 2:
-        return await m.reply("❌ Usage:\n`/thumb song name`")
+        return await m.reply("Usage: /thumb song name")
 
-    query = " ".join(m.command[1:])
-    msg = await m.reply("🎧 Generating thumbnail...")
+    msg = await m.reply("🎧 Designing thumbnail...")
+    data = await get_thumb_from_query(" ".join(m.command[1:]))
 
-    try:
-        data = await get_thumb_from_query(query)
-        if not data:
-            return await msg.edit("❌ Song not found")
+    if not data:
+        return await msg.edit("❌ Not found")
 
-        file = generate_thumbnail(data)
-        await m.reply_photo(file)
-        await msg.delete()
-
-    except Exception as e:
-        await msg.edit(f"❌ Error:\n`{e}`")
-
+    file = generate_thumbnail(data)
+    await m.reply_photo(file)
+    await msg.delete()
 
 bot.run()
-  
