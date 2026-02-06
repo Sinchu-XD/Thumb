@@ -69,9 +69,15 @@ def noise_texture(w, h, opacity=18):
 
 
 # ───────── THUMBNAIL GENERATOR ─────────
-async def gen_thumb(query: str):
+async def gen_thumb(videoid):
+    output_path = f"{CACHE_DIR}/{videoid}_glass_fix.png"
+    if os.path.isfile(output_path):
+        return output_path
+
     try:
-        res = await Search(query, limit=1)
+        # ─── 1. SEARCH VIDEO (YouTubeMusic.Search) ───
+        res = await Search(videoid, limit=1)
+
         if not res or not res.get("main_results"):
             return YOUTUBE_IMG_URL
 
@@ -82,79 +88,107 @@ async def gen_thumb(query: str):
         views = r.get("views", "0")
         url = r.get("url")
 
-        vid = extract_video_id(url)
-        if not vid:
+        # ─── 2. VIDEO ID ───
+        if "watch?v=" in url:
+            vid = url.split("watch?v=")[1].split("&")[0]
+        elif "youtu.be/" in url:
+            vid = url.split("youtu.be/")[1].split("?")[0]
+        else:
             return YOUTUBE_IMG_URL
 
-        thumb_url = r.get("thumbnail") or f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
-        final_path = os.path.join(CACHE_DIR, f"{vid}.png")
+        # ─── 3. THUMB URL ───
+        thumbnail_url = r.get("thumbnail") or f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
 
-        if os.path.isfile(final_path):
-            return final_path
-
-        raw_path = os.path.join(CACHE_DIR, f"raw_{vid}.jpg")
-
+        # ─── 4. DOWNLOAD IMAGE ───
+        raw_path = f"{CACHE_DIR}/raw_{vid}.jpg"
         async with aiohttp.ClientSession() as session:
-            async with session.get(thumb_url) as resp:
+            async with session.get(thumbnail_url) as resp:
                 if resp.status != 200:
                     return YOUTUBE_IMG_URL
                 async with aiofiles.open(raw_path, "wb") as f:
                     await f.write(await resp.read())
 
-        img = Image.open(raw_path).convert("RGBA")
-
-        # ─── CANVAS ───
+        # ─── 5. CANVAS ───
         W, H = 1920, 1080
-        canvas = Image.new("RGBA", (W, H))
+        original = Image.open(raw_path).convert("RGBA")
 
-        bg = img.resize((W, H), Image.LANCZOS)
-        bg = ImageEnhance.Color(bg).enhance(1.3)
-        bg = bg.filter(ImageFilter.GaussianBlur(70))
-        bg = ImageEnhance.Brightness(bg).enhance(0.55)
+        bg = original.resize((W, H), Image.LANCZOS)
+        bg = ImageEnhance.Color(bg).enhance(1.4)
+        bg = bg.filter(ImageFilter.GaussianBlur(80))
+        bg = ImageEnhance.Brightness(bg).enhance(0.6)
+
+        canvas = Image.new("RGBA", (W, H))
         canvas.paste(bg, (0, 0))
 
-        canvas.paste(noise_texture(W, H), (0, 0), noise_texture(W, H))
+        noise = generate_noise_texture(W, H, opacity=18)
+        canvas.paste(noise, (0, 0), noise)
 
-        # ─── CARD ───
+        # ─── 6. THEME COLOR ───
+        try:
+            theme = original.resize((1, 1)).getpixel((0, 0))[:3]
+            theme = tuple(min(c + 70, 255) for c in theme)
+        except:
+            theme = (180, 180, 255)
+
+        # ─── 7. CARD ───
         card_w, card_h = 1100, 380
-        cx, cy = (W - card_w) // 2, (H - card_h) // 2
+        cx = (W - card_w) // 2
+        cy = (H - card_h) // 2
+        radius = 40
 
-        card = Image.new("RGBA", (card_w, card_h))
+        glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        gd = ImageDraw.Draw(glow)
+
+        for i in range(18):
+            o = i * 4
+            a = 120 - i * 6
+            gd.rounded_rectangle(
+                [cx - o, cy - o, cx + card_w + o, cy + card_h + o],
+                radius + o,
+                outline=(*theme, a),
+                width=4
+            )
+
+        canvas.paste(glow, (0, 0), glow)
+
+        card = Image.new("RGBA", (card_w, card_h), (0, 0, 0, 0))
         cd = ImageDraw.Draw(card)
         cd.rounded_rectangle(
             (0, 0, card_w, card_h),
-            radius=40,
-            fill=(15, 15, 20, 160),
+            radius,
+            fill=(10, 10, 15, 160),
             outline=(255, 255, 255, 40),
             width=2
         )
 
+        # ─── 8. FONTS ───
         try:
-            f_title = ImageFont.truetype(FONT_PATH, 46)
-            f_meta = ImageFont.truetype(FONT2_PATH, 28)
-            f_small = ImageFont.truetype(FONT2_PATH, 24)
+            f_title = ImageFont.truetype(FONT_PATH, 45)
+            f_meta = ImageFont.truetype(FONT2_PATH, 26)
         except:
-            f_title = f_meta = f_small = ImageFont.load_default()
+            f_title = f_meta = ImageFont.load_default()
 
-        album = img.resize((300, 300), Image.LANCZOS)
-        card.paste(album, (40, 40), rounded_mask((300, 300), 28))
+        # Album
+        album = original.resize((300, 300), Image.LANCZOS)
+        mask = create_rounded_box_mask((300, 300), 25)
+        card.paste(album, (40, 40), mask)
 
+        # Text
         clean = re.sub(r"[^\w\s\-\.\,\!\?]", "", title)
-        if len(clean) > 30:
-            clean = clean[:27] + "..."
+        clean = clean[:25] + "..." if len(clean) > 28 else clean
 
-        cd.text((380, 55), clean, font=f_title, fill="white")
-        cd.text((380, 115), f"👁 {views}", font=f_meta, fill=(220, 220, 220))
-        cd.text((380, 165), f"⏱ {duration}", font=f_small, fill=(190, 190, 190))
+        cd.text((385, 70), clean, font=f_title, fill="white")
+        cd.text((385, 135), f"👁 {views} • ⏱ {duration}", font=f_meta, fill=(200, 200, 200))
 
         canvas.paste(card, (cx, cy), card)
-        canvas.convert("RGB").save(final_path, "PNG")
 
+        canvas.convert("RGB").save(output_path, "PNG", quality=100)
         os.remove(raw_path)
-        return final_path
+
+        return output_path
 
     except Exception as e:
-        print("[THUMB ERROR]", e)
+        print("[gen_thumb ERROR]", e)
         return YOUTUBE_IMG_URL
 
 
