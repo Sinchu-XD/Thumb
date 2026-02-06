@@ -10,11 +10,14 @@ API_ID = 35362137
 API_HASH = "c3c3e167ea09bc85369ca2fa3c1be790"
 BOT_TOKEN = "8360461005:AAH7uHgra-bYu1I3WOSgpn1VMrFt1Wi1fcw"
 
-FONT_SONG = "fonts/Montserrat-Bold.ttf"
-FONT_META = "fonts/Roboto-Medium.ttf"
-FONT_STATS = "fonts/JetBrainsMono-Regular.ttf"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-os.makedirs("temp", exist_ok=True)
+FONT_SONG = os.path.join(BASE_DIR, "fonts", "Montserrat-Bold.ttf")
+FONT_META = os.path.join(BASE_DIR, "fonts", "Roboto-Medium.ttf")
+FONT_STATS = os.path.join(BASE_DIR, "fonts", "JetBrainsMono-Regular.ttf")
+
+TEMP_DIR = os.path.join(BASE_DIR, "temp")
+os.makedirs(TEMP_DIR, exist_ok=True)
 
 bot = Client(
     "pil_thumb_bot",
@@ -34,6 +37,8 @@ def extract_video_id(url: str):
 
 def yt_thumbnail(url: str):
     vid = extract_video_id(url)
+    if not vid:
+        return None
     return f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
 
 
@@ -44,60 +49,70 @@ async def get_thumb_from_query(query: str):
 
     i = res["main_results"][0]
     return {
-        "title": i.get("title", "Unknown"),
+        "title": i.get("title", "Unknown Title"),
         "duration": i.get("duration", "Unknown"),
         "views": i.get("views", "Unknown"),
         "thumb": i.get("thumbnail") or yt_thumbnail(i["url"]),
     }
 
+
 # ───────── PIL THUMBNAIL ─────────
 def generate_thumbnail(data: dict) -> str:
-    # download image
-    r = requests.get(data["thumb"])
+    # Download thumbnail
+    r = requests.get(data["thumb"], timeout=10)
     img = Image.open(BytesIO(r.content)).convert("RGB")
 
-    # canvas
+    # Background
     canvas = Image.new("RGB", (900, 900))
     bg = img.resize((900, 900)).filter(ImageFilter.GaussianBlur(18))
     canvas.paste(bg, (0, 0))
 
-    # circular album
+    # Circular album
     album = img.resize((260, 260))
     mask = Image.new("L", album.size, 0)
-    draw = ImageDraw.Draw(mask)
-    draw.ellipse((0, 0, 260, 260), fill=255)
-
+    draw_mask = ImageDraw.Draw(mask)
+    draw_mask.ellipse((0, 0, 260, 260), fill=255)
     canvas.paste(album, (80, 320), mask)
 
-    # text
     draw = ImageDraw.Draw(canvas)
 
-    font_title = ImageFont.truetype(FONT_SONG, 46)
-    font_meta = ImageFont.truetype(FONT_META, 28)
-    font_views = ImageFont.truetype(FONT_STATS, 26)
+    # Load fonts safely
+    try:
+        font_title = ImageFont.truetype(FONT_SONG, 46)
+        font_meta = ImageFont.truetype(FONT_META, 28)
+        font_views = ImageFont.truetype(FONT_STATS, 26)
+    except Exception as e:
+        print("FONT ERROR:", e)
+        font_title = font_meta = font_views = ImageFont.load_default()
 
+    # Text
     draw.text((380, 330), data["title"], font=font_title, fill="white")
     draw.text((380, 395), data["duration"], font=font_meta, fill="#cccccc")
     draw.text((380, 435), data["views"], font=font_views, fill="#aaaaaa")
 
-    out = "temp/final.jpg"
+    out = os.path.join(TEMP_DIR, "final.jpg")
     canvas.save(out, "JPEG", quality=92)
     return out
 
-# ───────── BOT CMD ─────────
+
+# ───────── BOT COMMAND ─────────
 @bot.on_message(filters.command("thumb"))
 async def thumb(_, m):
     if len(m.command) < 2:
-        return await m.reply("Usage: /thumb song name")
+        return await m.reply("❌ Usage:\n`/thumb song name`")
 
     msg = await m.reply("🎧 Designing thumbnail...")
+
     data = await get_thumb_from_query(" ".join(m.command[1:]))
-
     if not data:
-        return await msg.edit("❌ Not found")
+        return await msg.edit("❌ Song not found")
 
-    file = generate_thumbnail(data)
-    await m.reply_photo(file)
-    await msg.delete()
+    try:
+        file = generate_thumbnail(data)
+        await m.reply_photo(file)
+        await msg.delete()
+    except Exception as e:
+        await msg.edit(f"❌ Error:\n`{e}`")
+
 
 bot.run()
