@@ -16,9 +16,6 @@ API_ID = int(os.getenv("API_ID", "35362137"))
 API_HASH = os.getenv("API_HASH", "c3c3e167ea09bc85369ca2fa3c1be790")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8360461005:AAH7uHgra-bYu1I3WOSgpn1VMrFt1Wi1fcw")
 
-if not API_ID or not API_HASH or not BOT_TOKEN:
-    raise RuntimeError("❌ API_ID / API_HASH / BOT_TOKEN missing")
-
 # ───────── PATHS ─────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CACHE_DIR = os.path.join(BASE_DIR, "cache")
@@ -37,7 +34,7 @@ bot = Client(
 )
 
 # ───────── HELPERS ─────────
-def extract_video_id(url: str):
+def extract_video_id(url):
     if not url:
         return None
     if "watch?v=" in url:
@@ -60,15 +57,17 @@ def noise_texture(w, h, opacity=18):
     return img
 
 
+def draw_text_shadow(draw, pos, text, font, fill):
+    x, y = pos
+    draw.text((x+2, y+2), text, font=font, fill=(0, 0, 0, 200))
+    draw.text((x, y), text, font=font, fill=fill)
+
+
 # ───────── THUMB GENERATOR ─────────
-async def gen_thumb(query: str):
+async def gen_thumb(query):
     try:
-        # 🔥 SAFE SEARCH (sync + async both)
         result = Search(query, limit=1)
-        if inspect.iscoroutine(result):
-            res = await result
-        else:
-            res = result
+        res = await result if inspect.iscoroutine(result) else result
 
         if not res or not res.get("main_results"):
             return YOUTUBE_IMG_URL
@@ -92,8 +91,6 @@ async def gen_thumb(query: str):
 
         async with aiohttp.ClientSession() as session:
             async with session.get(thumb_url) as resp:
-                if resp.status != 200:
-                    return YOUTUBE_IMG_URL
                 async with aiofiles.open(raw_path, "wb") as f:
                     await f.write(await resp.read())
 
@@ -104,45 +101,46 @@ async def gen_thumb(query: str):
         canvas = Image.new("RGBA", (W, H))
 
         bg = img.resize((W, H), Image.LANCZOS)
-        bg = ImageEnhance.Color(bg).enhance(1.3)
-        bg = bg.filter(ImageFilter.GaussianBlur(70))
-        bg = ImageEnhance.Brightness(bg).enhance(0.55)
+        bg = bg.filter(ImageFilter.GaussianBlur(80))
+        bg = ImageEnhance.Brightness(bg).enhance(0.45)
+        bg = ImageEnhance.Color(bg).enhance(1.4)
         canvas.paste(bg, (0, 0))
 
         noise = noise_texture(W, H)
         canvas.paste(noise, (0, 0), noise)
 
-        # ───────── CARD ─────────
-        card_w, card_h = 1100, 380
+        # ───────── PLAYER CARD ─────────
+        card_w, card_h = 1250, 300
         cx, cy = (W - card_w) // 2, (H - card_h) // 2
 
         card = Image.new("RGBA", (card_w, card_h))
         cd = ImageDraw.Draw(card)
+
         cd.rounded_rectangle(
             (0, 0, card_w, card_h),
             radius=40,
-            fill=(15, 15, 20, 160),
-            outline=(255, 255, 255, 40),
-            width=2
+            fill=(10, 10, 12, 220)
         )
 
+        # Fonts
         try:
-            f_title = ImageFont.truetype(FONT_PATH, 46)
-            f_meta = ImageFont.truetype(FONT2_PATH, 28)
-            f_small = ImageFont.truetype(FONT2_PATH, 24)
+            f_title = ImageFont.truetype(FONT_PATH, 38)
+            f_meta = ImageFont.truetype(FONT2_PATH, 24)
         except:
-            f_title = f_meta = f_small = ImageFont.load_default()
+            f_title = f_meta = ImageFont.load_default()
 
-        album = img.resize((300, 300), Image.LANCZOS)
-        card.paste(album, (40, 40), rounded_mask((300, 300), 28))
+        # Album
+        album = img.resize((220, 220), Image.LANCZOS)
+        card.paste(album, (30, 40), rounded_mask((220, 220), 28))
 
         clean = re.sub(r"[^\w\s\-.,!?]", "", title)
-        if len(clean) > 30:
-            clean = clean[:27] + "..."
+        if len(clean) > 40:
+            clean = clean[:37] + "..."
 
-        cd.text((380, 55), clean, font=f_title, fill="white")
-        cd.text((380, 115), f"👁 {views}", font=f_meta, fill=(220, 220, 220))
-        cd.text((380, 165), f"⏱ {duration}", font=f_small, fill=(190, 190, 190))
+        # Text (VISIBLE FIX)
+        draw_text_shadow(cd, (280, 55), clean, f_title, (255, 255, 255))
+        draw_text_shadow(cd, (280, 115), f"👁 {views}", f_meta, (230, 230, 230))
+        draw_text_shadow(cd, (280, 155), f"⏱ {duration}", f_meta, (210, 210, 210))
 
         canvas.paste(card, (cx, cy), card)
         canvas.convert("RGB").save(final_path, "PNG")
@@ -159,7 +157,7 @@ async def gen_thumb(query: str):
 @bot.on_message(filters.command("thumb"))
 async def thumb_cmd(_, m):
     if len(m.command) < 2:
-        return await m.reply("❌ Usage: `/thumb song name`")
+        return await m.reply("❌ /thumb song name")
 
     msg = await m.reply("🎨 Generating thumbnail...")
     thumb = await gen_thumb(" ".join(m.command[1:]))
