@@ -1,24 +1,46 @@
-from pyrogram import Client
-import os
 import asyncio
+from YouTubeMusic.Search import Search
 from thumbnails import get_thumb
 
-API_ID = 35362137
-API_HASH = "c3c3e167ea09bc85369ca2fa3c1be790"
-BOT_TOKEN = "8231818663:AAFtLagnRx0OSfIBO_a0RcXWkgRIExJsOqQ"
+async def main():
+    print("🔎 Searching Song...")
 
-app = Client("testbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+    results = await Search("Kesariya", limit=1)
 
-@app.on_message()
-async def send_thumb(client, message):
-    thumb = await get_thumb(
-        title="Test Song",
-        duration="2:45",
-        thumbnail="https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg",
-        channel="Test Channel",
-        views="1M",
-        videoid="abc123"
+    if not results or not results.get("main_results"):
+        print("❌ No Results Found")
+        return
+
+    item = results["main_results"][0]
+
+    # 🔥 Extract Data Safely
+    title = item.get("title", "Unknown Title")
+    duration = item.get("duration", "Live")
+    thumbnail = item.get("thumbnail")
+    channel = item.get("channel", "Unknown Channel")
+    views = item.get("views", "1M")
+    videoid = item.get("id", "testid")
+
+    print("🎵 Title:", title)
+    print("⏱ Duration:", duration)
+    print("📺 Channel:", channel)
+
+    print("🖼 Generating Thumbnail...")
+
+    thumb_path = await get_thumb(
+        title=title,
+        duration=duration,
+        thumbnail=thumbnail,
+        channel=channel,
+        views=views,
+        videoid=videoid
     )
-    await message.reply_photo(thumb)
 
-app.run()
+    if thumb_path:
+        print("✅ Thumbnail Generated Successfully!")
+        print("📂 Saved At:", thumb_path)
+    else:
+        print("❌ Failed To Generate Thumbnail")
+
+if __name__ == "__main__":
+    asyncio.run(main())
