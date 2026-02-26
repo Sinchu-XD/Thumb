@@ -1,32 +1,45 @@
 import asyncio
+from pyrogram import Client, filters
 from YouTubeMusic.Search import Search
 from thumbnails import get_thumb
 
-async def main():
-    print("🔎 Searching Song...")
+API_ID = 123456
+API_HASH = "your_api_hash"
+BOT_TOKEN = "your_bot_token"
 
-    results = await Search("Kesariya", limit=1)
+app = Client("ThumbBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
+
+@app.on_message(filters.command("start"))
+async def play_handler(client, message):
+
+    if len(message.command) < 2:
+        return await message.reply_text("❌ Usage: /play song name")
+
+    query = " ".join(message.command[1:])
+    await message.reply_text("🔎 Searching...")
+
+    results = await Search(query, limit=1)
 
     if not results or not results.get("main_results"):
-        print("❌ No Results Found")
-        return
+        return await message.reply_text("❌ No Results Found")
 
     item = results["main_results"][0]
 
-    # 🔥 Extract Data Safely
+    # 🔥 Extract Properly
     title = item.get("title", "Unknown Title")
     duration = item.get("duration", "Live")
+
+    # Thumbnail handling (list or string)
     thumbnail = item.get("thumbnail")
+    if isinstance(thumbnail, list):
+        thumbnail = thumbnail[0]["url"]
+
     channel = item.get("channel", "Unknown Channel")
     views = item.get("views", "1M")
     videoid = item.get("id", "testid")
 
-    print("🎵 Title:", title)
-    print("⏱ Duration:", duration)
-    print("📺 Channel:", channel)
-
-    print("🖼 Generating Thumbnail...")
-
+    # 🎨 Generate Thumbnail
     thumb_path = await get_thumb(
         title=title,
         duration=duration,
@@ -36,11 +49,18 @@ async def main():
         videoid=videoid
     )
 
-    if thumb_path:
-        print("✅ Thumbnail Generated Successfully!")
-        print("📂 Saved At:", thumb_path)
-    else:
-        print("❌ Failed To Generate Thumbnail")
+    if not thumb_path:
+        return await message.reply_text("❌ Thumbnail Generate Failed")
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    caption = f"""
+🎵 **{title}**
+
+⏱ Duration : {duration}
+📺 Channel : {channel}
+👀 Views : {views}
+"""
+
+    await message.reply_photo(photo=thumb_path, caption=caption)
+
+
+app.run()
