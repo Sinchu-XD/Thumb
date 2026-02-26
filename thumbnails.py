@@ -17,20 +17,29 @@ def changeImageSize(maxWidth, maxHeight, image):
     newImage = image.resize((newWidth, newHeight))
     return newImage
 
-def truncate(text):
-    list = text.split(" ")
-    text1 = ""
-    text2 = ""    
-    for i in list:
-        if len(text1) + len(i) < 30:        
-            text1 += " " + i
-        elif len(text2) + len(i) < 30:       
-            text2 += " " + i
+def wrap_text(text, font, max_width, draw):
+    lines = []
+    words = text.split()
+    current_line = ""
 
-    text1 = text1.strip()
-    text2 = text2.strip()     
-    return [text1,text2]
+    for word in words:
+        test_line = current_line + (" " if current_line else "") + word
+        bbox = draw.textbbox((0, 0), test_line, font=font)
+        text_width = bbox[2] - bbox[0]
 
+        if text_width <= max_width:
+            current_line = test_line
+        else:
+            if current_line:
+                lines.append(current_line)
+            current_line = word
+
+    if current_line:
+        lines.append(current_line)
+
+    # Maximum 2 lines only (same as your design)
+    return lines[:2]
+    
 def random_color():
     return (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
 
@@ -277,7 +286,7 @@ async def get_thumb(title, duration, thumbnail, channel=None, views=None, videoi
         text_area_width = card_width - album_size - 180
         
         # Title with gradient effect
-        title1 = truncate(title)
+        title1 = wrap_text(title, title_font, text_area_width, draw)
         title_y = card_y + 100
         
         # Draw "NOW PLAYING" label
