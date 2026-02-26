@@ -18,6 +18,9 @@ def changeImageSize(maxWidth, maxHeight, image):
     return newImage
 
 def wrap_text(text, font, max_width, draw):
+    if not text:
+        return ["Now Playing"]
+
     lines = []
     words = text.split()
     current_line = ""
@@ -37,7 +40,10 @@ def wrap_text(text, font, max_width, draw):
     if current_line:
         lines.append(current_line)
 
-    # Maximum 2 lines only (same as your design)
+    # Always return at least one line
+    if not lines:
+        lines = ["Now Playing"]
+
     return lines[:2]
     
 def random_color():
@@ -303,7 +309,7 @@ async def get_thumb(title, duration, thumbnail, channel=None, views=None, videoi
         
         # Song title - line 1
 # Song title (safe rendering)
-for i, line in enumerate(title1):
+     for i, line in enumerate(title1):
     draw_text_with_shadow(
         background, draw,
         (text_x, title_y + (i * 60)),
