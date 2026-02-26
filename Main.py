@@ -5,7 +5,7 @@ from thumbnails import get_thumb
 
 API_ID = 35362137
 API_HASH = "c3c3e167ea09bc85369ca2fa3c1be790"
-BOT_TOKEN = "8360461005:AAH7uHgra-bYu1I3WOSgpn1VMrFt1Wi1fcw"
+BOT_TOKEN = "8231818663:AAFtLagnRx0OSfIBO_a0RcXWkgRIExJsOqQ"
 
 app = Client("testbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
