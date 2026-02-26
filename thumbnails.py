@@ -302,27 +302,17 @@ async def get_thumb(title, duration, thumbnail, channel=None, views=None, videoi
         )
         
         # Song title - line 1
-        draw_text_with_shadow(
-            background, draw,
-            (text_x, title_y),
-            title1[0],
-            title_font,
-            (255, 255, 255),
-            shadow_offset=(3, 3),
-            shadow_blur=6
-        )
-        
-        # Song title - line 2
-        if title1[1]:
-            draw_text_with_shadow(
-                background, draw,
-                (text_x, title_y + 60),
-                title1[1],
-                title_font,
-                (255, 255, 255),
-                shadow_offset=(3, 3),
-                shadow_blur=6
-            )
+# Song title (safe rendering)
+for i, line in enumerate(title1):
+    draw_text_with_shadow(
+        background, draw,
+        (text_x, title_y + (i * 60)),
+        line,
+        title_font,
+        (255, 255, 255),
+        shadow_offset=(3, 3),
+        shadow_blur=6
+    )
         
         # Artist/Channel info with icon
         artist_y = title_y + 140
