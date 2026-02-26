@@ -3,9 +3,9 @@ from pyrogram import Client, filters
 from YouTubeMusic.Search import Search
 from thumbnails import get_thumb
 
-API_ID = 123456
-API_HASH = "your_api_hash"
-BOT_TOKEN = "your_bot_token"
+API_ID = 35362137
+API_HASH = "c3c3e167ea09bc85369ca2fa3c1be790"
+BOT_TOKEN = "8231818663:AAFtLagnRx0OSfIBO_a0RcXWkgRIExJsOqQ"
 
 app = Client("ThumbBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
